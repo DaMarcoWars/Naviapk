@@ -41,8 +41,8 @@
     }
     .btn {
       width: 100%;
-      padding: 25px 15px;
-      font-size: 1.6rem;
+      padding: 22px 15px;
+      font-size: 1.5rem;
       font-weight: bold;
       border: none;
       border-radius: 16px;
@@ -75,7 +75,7 @@
       border: 2px solid #555;
       padding: 15px;
       border-radius: 10px;
-      margin-bottom: 10px;
+      margin-bottom: 15px;
       font-size: 1.3rem;
     }
   </style>
@@ -98,13 +98,14 @@
   <!-- Navigation Section -->
   <div id="navSection" class="section">
     <button id="startNavBtn" class="btn btn-primary" onclick="toggleNavigation()">Navigation Starten</button>
+    <button class="btn btn-warning" onclick="reverseCurrentRoute()">Weg umkehren (Rückweg)</button>
     <button class="btn btn-warning" onclick="announceCurrentState()">Wo bin ich? (Status ansagen)</button>
     <button class="btn btn-secondary" onclick="stopNavigation(); showSection('menuSection');">Zurück zum Hauptmenü</button>
   </div>
 
   <!-- Aufzeichnen Section -->
   <div id="recSection" class="section">
-    <input type="text" id="routeNameInput" class="input-field" placeholder="Name des Weges" value="Mein Hauptweg">
+    <input type="text" id="routeNameInput" class="input-field" placeholder="Name des Weges" value="Mein Weg">
     <button id="recToggleBtn" class="btn btn-success" onclick="toggleRecording()">Aufnahme Starten</button>
     <button id="addWaypointBtn" class="btn btn-warning" style="display:none;" onclick="manualAddWaypoint()">Wegpunkt / Hinweis hinzufügen</button>
     <button class="btn btn-secondary" onclick="stopRecording(); showSection('menuSection');">Zurück zum Hauptmenü</button>
@@ -118,6 +119,8 @@
   </div>
 
   <script>
+    // --- KONFIGURATION & ZUSTAND ---
+    const REC_DISTANCE_THRESHOLD = 6; // Automatischer Abstand für Wegpunkte in Metern
     let routes = JSON.parse(localStorage.getItem('navi_routes') || '[]');
     let currentRoute = null;
     let isNavigating = false;
@@ -127,7 +130,35 @@
     let currentTargetIndex = 0;
     let recPoints = [];
     let lastRecPosition = null;
+    let initialSnapDone = false;
+    let currentCompassHeading = null;
 
+    // --- KOMPASS SENSOR INITIALISIERUNG ---
+    function initCompass() {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission().then(state => {
+          if (state === 'granted') {
+            window.addEventListener('deviceorientation', handleOrientation, true);
+          }
+        }).catch(console.error);
+      } else {
+        if ('ondeviceorientationabsolute' in window) {
+          window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+        } else if ('ondeviceorientation' in window) {
+          window.addEventListener('deviceorientation', handleOrientation, true);
+        }
+      }
+    }
+
+    function handleOrientation(event) {
+      if (event.webkitCompassHeading) {
+        currentCompassHeading = event.webkitCompassHeading;
+      } else if (event.alpha !== null && event.alpha !== undefined) {
+        currentCompassHeading = (360 - event.alpha) % 360;
+      }
+    }
+
+    // --- ALLGEMEINE HILFSFUNKTIONEN ---
     function speak(text) {
       document.getElementById('status').innerText = text;
       try {
@@ -162,14 +193,43 @@
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
+    function getBearing(lat1, lon1, lat2, lon2) {
+      const φ1 = lat1 * Math.PI / 180;
+      const φ2 = lat2 * Math.PI / 180;
+      const Δλ = (lon2 - lon1) * Math.PI / 180;
+      const y = Math.sin(Δλ) * Math.cos(φ2);
+      const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+      const θ = Math.atan2(y, x);
+      return (θ * 180 / Math.PI + 360) % 360;
+    }
+
+    function getDirectionText(lat1, lon1, lat2, lon2, gpsHeading) {
+      const bearing = getBearing(lat1, lon1, lat2, lon2);
+      let heading = (gpsHeading !== null && gpsHeading !== undefined && !isNaN(gpsHeading)) 
+                    ? gpsHeading 
+                    : currentCompassHeading;
+
+      if (heading !== null && heading !== undefined && !isNaN(heading)) {
+        let relAngle = (bearing - heading + 360) % 360;
+        let clock = Math.round(relAngle / 30);
+        if (clock === 0 || clock === 12) clock = 12;
+        return `auf ${clock} Uhr`;
+      } else {
+        return `geradeaus`;
+      }
+    }
+
     // --- NAVIGATION ---
     function prepareNavigation() {
+      initCompass();
       if (routes.length === 0) {
         speak("Keine gespeicherten Wege vorhanden. Bitte zeichnen Sie zuerst einen Weg auf.");
         showSection('menuSection');
         return;
       }
       currentRoute = routes[routes.length - 1];
+      currentTargetIndex = 0;
+      initialSnapDone = false;
       speak(`Weg gewählt: ${currentRoute.name}. Bereit zum Starten.`);
     }
 
@@ -196,11 +256,21 @@
       );
     }
 
-    let initialSnapDone = false;
+    function reverseCurrentRoute() {
+      if (!currentRoute) {
+        speak("Kein Weg ausgewählt.");
+        return;
+      }
+      currentRoute.points.reverse();
+      currentTargetIndex = 0;
+      initialSnapDone = false;
+      speak("Weg wurde umgekehrt. Start und Ziel sind jetzt vertauscht. Bereit für den Rückweg.");
+    }
 
     function onNavPosition(pos) {
       const uLat = pos.coords.latitude;
       const uLon = pos.coords.longitude;
+      const heading = pos.coords.heading;
       const points = currentRoute.points;
 
       if (!initialSnapDone) {
@@ -216,7 +286,8 @@
         currentTargetIndex = closestIdx;
         initialSnapDone = true;
         const dRounded = Math.round(minDist);
-        speak(`Einstieg bei Wegpunkt ${currentTargetIndex + 1} von ${points.length}. Abstand ca. ${dRounded} Meter.`);
+        const dirText = getDirectionText(uLat, uLon, points[currentTargetIndex].lat, points[currentTargetIndex].lon, heading);
+        speak(`Einstieg bei Wegpunkt ${currentTargetIndex + 1} von ${points.length}. Noch ${dRounded} Meter ${dirText}.`);
         vibrate([100, 50, 100]);
         return;
       }
@@ -227,12 +298,14 @@
       if (dist < 7) {
         vibrate([300, 100, 300]);
         let msg = `Wegpunkt ${currentTargetIndex + 1} erreicht. `;
-        if (target.text) msg += target.text;
+        if (target.text) msg += target.text + ". ";
 
         if (currentTargetIndex < points.length - 1) {
           currentTargetIndex++;
-          const nextDist = Math.round(getDistance(uLat, uLon, points[currentTargetIndex].lat, points[currentTargetIndex].lon));
-          msg += ` Nächster Punkt in ca. ${nextDist} Metern.`;
+          const nextTarget = points[currentTargetIndex];
+          const nextDist = Math.round(getDistance(uLat, uLon, nextTarget.lat, nextTarget.lon));
+          const dirText = getDirectionText(uLat, uLon, nextTarget.lat, nextTarget.lon, heading);
+          msg += `Nächster Punkt in ca. ${nextDist} Metern ${dirText}.`;
           speak(msg);
         } else {
           msg += " Ziel erreicht! Navigation beendet.";
@@ -248,9 +321,15 @@
         return;
       }
       navigator.geolocation.getCurrentPosition(pos => {
+        const uLat = pos.coords.latitude;
+        const uLon = pos.coords.longitude;
+        const heading = pos.coords.heading;
         const target = currentRoute.points[currentTargetIndex];
-        const dist = Math.round(getDistance(pos.coords.latitude, pos.coords.longitude, target.lat, target.lon));
-        speak(`Nächster Punkt: Wegpunkt ${currentTargetIndex + 1}. Noch ca. ${dist} Meter.`);
+        
+        const dist = Math.round(getDistance(uLat, uLon, target.lat, target.lon));
+        const dirText = getDirectionText(uLat, uLon, target.lat, target.lon, heading);
+        
+        speak(`Nächster Punkt: Wegpunkt ${currentTargetIndex + 1}. Noch ca. ${dist} Meter ${dirText}.`);
       }, () => speak("GPS-Signal aktuell nicht verfügbar."));
     }
 
@@ -309,7 +388,7 @@
         vibrate(200);
       } else {
         const dist = getDistance(lastRecPosition.lat, lastRecPosition.lon, uLat, uLon);
-        if (dist >= 6) {
+        if (dist >= REC_DISTANCE_THRESHOLD) {
           addRecPoint(uLat, uLon, `Wegpunkt ${recPoints.length + 1}`);
           lastRecPosition = { lat: uLat, lon: uLon };
           vibrate(150);
@@ -393,6 +472,8 @@
 
     function selectRoute(idx) {
       currentRoute = routes[idx];
+      currentTargetIndex = 0;
+      initialSnapDone = false;
       speak(`Weg '${currentRoute.name}' ausgewählt.`);
       showSection('navSection');
     }
