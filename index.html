@@ -309,7 +309,7 @@
         vibrate(200);
       } else {
         const dist = getDistance(lastRecPosition.lat, lastRecPosition.lon, uLat, uLon);
-        if (dist >= 12) {
+        if (dist >= 6) {
           addRecPoint(uLat, uLon, `Wegpunkt ${recPoints.length + 1}`);
           lastRecPosition = { lat: uLat, lon: uLon };
           vibrate(150);
