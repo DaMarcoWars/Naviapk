@@ -114,6 +114,8 @@
   <!-- Verwalten Section -->
   <div id="manageSection" class="section">
     <h2 style="margin-bottom:10px;">Gespeicherte Wege</h2>
+    <button class="btn btn-success" onclick="document.getElementById('importFileInput').click()">+ Weg importieren (Datei öffnen)</button>
+    <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importRouteFromFile(event)">
     <div id="routesList" style="margin-top: 15px; margin-bottom: 15px;"></div>
     <button class="btn btn-secondary" onclick="showSection('menuSection');">Zurück zum Hauptmenü</button>
   </div>
@@ -462,6 +464,7 @@
             <strong>${r.name}</strong> (${r.points.length} Punkte)
             <br><br>
             <button class="btn btn-primary" onclick="selectRoute(${idx})">Weg Auswählen & Navigieren</button>
+            <button class="btn btn-warning" onclick="exportRoute(${idx})">Weg Teilen / Exportieren</button>
             <button class="btn btn-danger" onclick="deleteRoute(${idx})">Löschen</button>
           </div>
         `;
@@ -484,6 +487,55 @@
       localStorage.setItem('navi_routes', JSON.stringify(routes));
       renderRoutesList();
       speak(`Weg '${deletedName}' wurde gelöscht.`);
+    }
+
+    // --- TEILEN & IMPORTIEREN ---
+    function exportRoute(idx) {
+      const route = routes[idx];
+      const dataStr = JSON.stringify(route, null, 2);
+      const safeName = route.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      const fileName = `${safeName}_route.json`;
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const file = new File([blob], fileName, { type: 'application/json' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({
+          files: [file],
+          title: `Weg: ${route.name}`,
+          text: `Hier ist der aufgezeichnete Weg '${route.name}' für die Navi-App.`
+        }).then(() => speak("Teilen-Menü geöffnet."))
+          .catch(() => speak("Teilen abgebrochen."));
+      } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName;
+        a.click();
+        speak(`Weg ${route.name} wurde als Datei heruntergeladen.`);
+      }
+    }
+
+    function importRouteFromFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const importedRoute = JSON.parse(e.target.result);
+          if (!importedRoute.name || !Array.isArray(importedRoute.points)) {
+            throw new Error("Ungültiges Format");
+          }
+          importedRoute.id = Date.now();
+          routes.push(importedRoute);
+          localStorage.setItem('navi_routes', JSON.stringify(routes));
+          renderRoutesList();
+          speak(`Weg '${importedRoute.name}' erfolgreich importiert und gespeichert.`);
+        } catch (err) {
+          speak("Fehler beim Importieren: Ungültiges Dateiformat.");
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = '';
     }
 
     function onGeoError(err) {
