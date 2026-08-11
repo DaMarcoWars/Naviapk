@@ -92,7 +92,7 @@
   <div id="menuSection" class="section active">
     <button class="btn btn-primary" onclick="showSection('navSection'); prepareNavigation();">1. Navigation starten</button>
     <button class="btn btn-success" onclick="showSection('recSection'); prepareRecording();">2. Neuen Weg aufzeichnen</button>
-    <button class="btn btn-secondary" onclick="showSection('manageSection'); renderRoutesList();">3. Wege verwalten</button>
+    <button class="btn btn-secondary" onclick="showSection('manageSection'); renderRoutesList();">3. Wege verwalten & Teilen</button>
   </div>
 
   <!-- Navigation Section -->
@@ -107,33 +107,40 @@
   <div id="recSection" class="section">
     <input type="text" id="routeNameInput" class="input-field" placeholder="Name des Weges" value="Mein Weg">
     <button id="recToggleBtn" class="btn btn-success" onclick="toggleRecording()">Aufnahme Starten</button>
-    <button id="addWaypointBtn" class="btn btn-warning" style="display:none;" onclick="manualAddWaypoint()">Wegpunkt / Hinweis hinzufügen</button>
+    <button id="addWaypointBtn" class="btn btn-warning" style="display:none;" onclick="manualAddWaypoint()">Haupt-Wegpunkt / Hinweis hinzufügen</button>
     <button class="btn btn-secondary" onclick="stopRecording(); showSection('menuSection');">Zurück zum Hauptmenü</button>
   </div>
 
-  <!-- Verwalten Section -->
+  <!-- Verwalten & Teilen Section -->
   <div id="manageSection" class="section">
-    <h2 style="margin-bottom:10px;">Gespeicherte Wege</h2>
-    <button class="btn btn-success" onclick="document.getElementById('importFileInput').click()">+ Weg importieren (Datei öffnen)</button>
-    <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importRouteFromFile(event)">
+    <h2 style="margin-bottom:15px;">Gespeicherte Wege</h2>
+    
+    <button class="btn btn-primary" onclick="importFromPrompt()">Weg aus Text-Code importieren</button>
+    <button class="btn btn-success" onclick="triggerFileImport()">Weg aus Datei importieren</button>
+    <input type="file" id="importFileInput" style="display:none;" accept=".json" onchange="handleFileImport(event)">
+
     <div id="routesList" style="margin-top: 15px; margin-bottom: 15px;"></div>
     <button class="btn btn-secondary" onclick="showSection('menuSection');">Zurück zum Hauptmenü</button>
   </div>
 
   <script>
     // --- KONFIGURATION & ZUSTAND ---
-    const REC_DISTANCE_THRESHOLD = 6; // Automatischer Abstand für Wegpunkte in Metern
+    const REC_DISTANCE_THRESHOLD = 6; // Automatischer Brotkrumen-Abstand in Metern
+    const OFF_ROUTE_THRESHOLD = 15;   // Toleranzgrenze für Abweichung vom Weg in Metern
+
     let routes = JSON.parse(localStorage.getItem('navi_routes') || '[]');
     let currentRoute = null;
     let isNavigating = false;
     let isRecording = false;
     let navWatchId = null;
     let recWatchId = null;
+    
     let currentTargetIndex = 0;
     let recPoints = [];
     let lastRecPosition = null;
     let initialSnapDone = false;
     let currentCompassHeading = null;
+    let lastOffRouteWarnTime = 0;
 
     // --- KOMPASS SENSOR INITIALISIERUNG ---
     function initCompass() {
@@ -221,6 +228,23 @@
       }
     }
 
+    // Hilfsfunktion: Prüft, ob ein Punkt ein Haupt-Wegpunkt ist
+    function isKeyPoint(point, idx, totalLength) {
+      if (point.isKey !== undefined) return point.isKey;
+      // Abwärtskompatibilität für alte Wege:
+      if (idx === 0 || idx === totalLength - 1) return true;
+      if (point.text && !point.text.startsWith("Wegpunkt ")) return true;
+      return false;
+    }
+
+    // Findet den nächsten Haupt-Wegpunkt ab dem aktuellen Index
+    function getNextKeyIndex(startIndex, points) {
+      for (let i = startIndex; i < points.length; i++) {
+        if (isKeyPoint(points[i], i, points.length)) return i;
+      }
+      return points.length - 1;
+    }
+
     // --- NAVIGATION ---
     function prepareNavigation() {
       initCompass();
@@ -275,39 +299,73 @@
       const heading = pos.coords.heading;
       const points = currentRoute.points;
 
-      if (!initialSnapDone) {
-        let minDist = Infinity;
-        let closestIdx = 0;
-        for (let i = 0; i < points.length; i++) {
-          const d = getDistance(uLat, uLon, points[i].lat, points[i].lon);
-          if (d < minDist) {
-            minDist = d;
-            closestIdx = i;
-          }
+      // 1. Nächstgelegenen Punkt auf der Spur finden (Fortschritt messen)
+      let minTrackDist = Infinity;
+      let closestIdx = currentTargetIndex;
+
+      for (let i = 0; i < points.length; i++) {
+        const d = getDistance(uLat, uLon, points[i].lat, points[i].lon);
+        if (d < minTrackDist) {
+          minTrackDist = d;
+          closestIdx = i;
         }
+      }
+
+      // Erstes Einrasten beim Start der Navigation
+      if (!initialSnapDone) {
         currentTargetIndex = closestIdx;
         initialSnapDone = true;
-        const dRounded = Math.round(minDist);
-        const dirText = getDirectionText(uLat, uLon, points[currentTargetIndex].lat, points[currentTargetIndex].lon, heading);
-        speak(`Einstieg bei Wegpunkt ${currentTargetIndex + 1} von ${points.length}. Noch ${dRounded} Meter ${dirText}.`);
+        
+        const keyIdx = getNextKeyIndex(currentTargetIndex, points);
+        const keyTarget = points[keyIdx];
+        const distToKey = Math.round(getDistance(uLat, uLon, keyTarget.lat, keyTarget.lon));
+        const dirText = getDirectionText(uLat, uLon, keyTarget.lat, keyTarget.lon, heading);
+        const nameText = keyTarget.text || `Haupt-Wegpunkt ${keyIdx + 1}`;
+
+        speak(`Navigation gestartet. Nächster Haupt-Wegpunkt: ${nameText}. Noch ${distToKey} Meter ${dirText}.`);
         vibrate([100, 50, 100]);
         return;
       }
 
-      const target = points[currentTargetIndex];
-      const dist = getDistance(uLat, uLon, target.lat, target.lon);
+      // Fortschritt aktualisieren (nur vorwärts bewegen)
+      if (closestIdx >= currentTargetIndex) {
+        currentTargetIndex = closestIdx;
+      }
 
-      if (dist < 7) {
+      // 2. Abweichungs-Prüfung (Off-Route Schutz)
+      if (minTrackDist > OFF_ROUTE_THRESHOLD) {
+        const now = Date.now();
+        if (now - lastOffRouteWarnTime > 12000) { // Max. alle 12 Sekunden warnen
+          lastOffRouteWarnTime = now;
+          const keyIdx = getNextKeyIndex(currentTargetIndex, points);
+          const keyTarget = points[keyIdx];
+          const dirText = getDirectionText(uLat, uLon, keyTarget.lat, keyTarget.lon, heading);
+          
+          speak(`Achtung: Du bist vom Weg abgekommen! Der nächste Wegpunkt liegt ca. ${Math.round(minTrackDist)} Meter entfernt ${dirText}.`);
+          vibrate([300, 100, 300, 100, 300]);
+        }
+        return; // Ankunftsprüfung überspringen, solange man abseits ist
+      }
+
+      // 3. Ankunft am nächsten HAUPT-Wegpunkt prüfen
+      const keyIdx = getNextKeyIndex(currentTargetIndex, points);
+      const keyTarget = points[keyIdx];
+      const distToKey = getDistance(uLat, uLon, keyTarget.lat, keyTarget.lon);
+
+      if (distToKey < 7) {
         vibrate([300, 100, 300]);
-        let msg = `Wegpunkt ${currentTargetIndex + 1} erreicht. `;
-        if (target.text) msg += target.text + ". ";
+        let msg = `Erreicht: ${keyTarget.text || ('Haupt-Wegpunkt ' + (keyIdx + 1))}. `;
 
-        if (currentTargetIndex < points.length - 1) {
-          currentTargetIndex++;
-          const nextTarget = points[currentTargetIndex];
-          const nextDist = Math.round(getDistance(uLat, uLon, nextTarget.lat, nextTarget.lon));
-          const dirText = getDirectionText(uLat, uLon, nextTarget.lat, nextTarget.lon, heading);
-          msg += `Nächster Punkt in ca. ${nextDist} Metern ${dirText}.`;
+        if (keyIdx < points.length - 1) {
+          // Weiter zum nächsten Haupt-Wegpunkt springen
+          currentTargetIndex = keyIdx + 1;
+          const nextKeyIdx = getNextKeyIndex(currentTargetIndex, points);
+          const nextKeyTarget = points[nextKeyIdx];
+          const nextDist = Math.round(getDistance(uLat, uLon, nextKeyTarget.lat, nextKeyTarget.lon));
+          const dirText = getDirectionText(uLat, uLon, nextKeyTarget.lat, nextKeyTarget.lon, heading);
+          const nextName = nextKeyTarget.text || `Haupt-Wegpunkt ${nextKeyIdx + 1}`;
+
+          msg += `Nächstes Ziel: ${nextName} in ca. ${nextDist} Metern ${dirText}.`;
           speak(msg);
         } else {
           msg += " Ziel erreicht! Navigation beendet.";
@@ -326,12 +384,26 @@
         const uLat = pos.coords.latitude;
         const uLon = pos.coords.longitude;
         const heading = pos.coords.heading;
-        const target = currentRoute.points[currentTargetIndex];
-        
-        const dist = Math.round(getDistance(uLat, uLon, target.lat, target.lon));
-        const dirText = getDirectionText(uLat, uLon, target.lat, target.lon, heading);
-        
-        speak(`Nächster Punkt: Wegpunkt ${currentTargetIndex + 1}. Noch ca. ${dist} Meter ${dirText}.`);
+        const points = currentRoute.points;
+
+        // Abweichung prüfen
+        let minTrackDist = Infinity;
+        for (let i = 0; i < points.length; i++) {
+          const d = getDistance(uLat, uLon, points[i].lat, points[i].lon);
+          if (d < minTrackDist) minTrackDist = d;
+        }
+
+        const keyIdx = getNextKeyIndex(currentTargetIndex, points);
+        const keyTarget = points[keyIdx];
+        const distToKey = Math.round(getDistance(uLat, uLon, keyTarget.lat, keyTarget.lon));
+        const dirText = getDirectionText(uLat, uLon, keyTarget.lat, keyTarget.lon, heading);
+        const nameText = keyTarget.text || `Haupt-Wegpunkt ${keyIdx + 1}`;
+
+        if (minTrackDist > OFF_ROUTE_THRESHOLD) {
+          speak(`Achtung: Du bist ca. ${Math.round(minTrackDist)} Meter vom Weg abgekommen! Nächster Wegpunkt ${dirText}.`);
+        } else {
+          speak(`Auf dem Weg. Nächstes Ziel: ${nameText}. Noch ca. ${distToKey} Meter ${dirText}.`);
+        }
       }, () => speak("GPS-Signal aktuell nicht verfügbar."));
     }
 
@@ -384,17 +456,16 @@
       const uLon = pos.coords.longitude;
 
       if (!lastRecPosition) {
-        addRecPoint(uLat, uLon, "Startpunkt");
+        addRecPoint(uLat, uLon, "Startpunkt", true);
         lastRecPosition = { lat: uLat, lon: uLon };
         speak("Startpunkt gespeichert.");
         vibrate(200);
       } else {
         const dist = getDistance(lastRecPosition.lat, lastRecPosition.lon, uLat, uLon);
         if (dist >= REC_DISTANCE_THRESHOLD) {
-          addRecPoint(uLat, uLon, `Wegpunkt ${recPoints.length + 1}`);
+          addRecPoint(uLat, uLon, "", false); // Stumme Brotkrumen
           lastRecPosition = { lat: uLat, lon: uLon };
-          vibrate(150);
-          speak(`Wegpunkt ${recPoints.length} gespeichert.`);
+          vibrate(80); // Sehr kurzes haptisches Feedback ohne Sprache
         }
       }
     }
@@ -404,16 +475,16 @@
       navigator.geolocation.getCurrentPosition(pos => {
         const uLat = pos.coords.latitude;
         const uLon = pos.coords.longitude;
-        const note = prompt("Hinweis für diesen Punkt eingeben (z.B. 'Hier links abbiegen'):", "Besonderer Hinweis");
-        addRecPoint(uLat, uLon, note || `Wegpunkt ${recPoints.length + 1}`);
+        const note = prompt("Hinweis für diesen Haupt-Wegpunkt eingeben (z.B. 'Hier links abbiegen'):", "Besonderer Hinweis");
+        addRecPoint(uLat, uLon, note || "Wichtiger Hinweis", true);
         lastRecPosition = { lat: uLat, lon: uLon };
         vibrate([100, 100, 100]);
-        speak(`Wegpunkt ${recPoints.length} mit Hinweis gespeichert.`);
+        speak(`Haupt-Wegpunkt mit Hinweis gespeichert.`);
       }, () => speak("GPS Fehler beim Speichern."));
     }
 
-    function addRecPoint(lat, lon, text) {
-      recPoints.push({ lat: lat, lon: lon, text: text });
+    function addRecPoint(lat, lon, text, isKey) {
+      recPoints.push({ lat: lat, lon: lon, text: text, isKey: !!isKey });
     }
 
     function finishRecording() {
@@ -426,6 +497,12 @@
       if (recPoints.length === 0) {
         speak("Keine Punkte aufgezeichnet.");
       } else {
+        // Letzten Punkt als Ziel-Hauptwegpunkt markieren
+        recPoints[recPoints.length - 1].isKey = true;
+        if (!recPoints[recPoints.length - 1].text) {
+          recPoints[recPoints.length - 1].text = "Ziel erreicht";
+        }
+
         const routeName = document.getElementById('routeNameInput').value.trim() || `Weg ${routes.length + 1}`;
         routes.push({
           id: Date.now(),
@@ -433,7 +510,7 @@
           points: recPoints
         });
         localStorage.setItem('navi_routes', JSON.stringify(routes));
-        speak(`Weg '${routeName}' mit ${recPoints.length} Punkten gespeichert!`);
+        speak(`Weg '${routeName}' erfolgreich gespeichert!`);
       }
 
       showSection('menuSection');
@@ -448,7 +525,7 @@
       speak("Aufnahme abgebrochen.");
     }
 
-    // --- VERWALTUNG ---
+    // --- VERWALTUNG & TEILEN ---
     function renderRoutesList() {
       const container = document.getElementById('routesList');
       if (routes.length === 0) {
@@ -463,8 +540,8 @@
           <div class="route-item">
             <strong>${r.name}</strong> (${r.points.length} Punkte)
             <br><br>
-            <button class="btn btn-primary" onclick="selectRoute(${idx})">Weg Auswählen & Navigieren</button>
-            <button class="btn btn-warning" onclick="exportRoute(${idx})">Weg Teilen / Exportieren</button>
+            <button class="btn btn-primary" onclick="selectRoute(${idx})">Navigieren</button>
+            <button class="btn btn-warning" onclick="shareRoute(${idx})">Weg Teilen / Senden</button>
             <button class="btn btn-danger" onclick="deleteRoute(${idx})">Löschen</button>
           </div>
         `;
@@ -481,61 +558,81 @@
       showSection('navSection');
     }
 
+    function shareRoute(idx) {
+      const route = routes[idx];
+      const routeJson = JSON.stringify(route);
+
+      if (navigator.share) {
+        navigator.share({
+          title: `Weg: ${route.name}`,
+          text: routeJson
+        }).then(() => speak("Weg-Daten gesendet."))
+          .catch(() => copyToClipboard(routeJson));
+      } else {
+        copyToClipboard(routeJson);
+      }
+    }
+
+    function copyToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          speak("Weg wurde als Text-Code in die Zwischenablage kopiert.");
+        }).catch(() => {
+          prompt("Kopieren Sie diesen Text-Code zum Teilen:", text);
+        });
+      } else {
+        prompt("Kopieren Sie diesen Text-Code zum Teilen:", text);
+      }
+    }
+
+    function importFromPrompt() {
+      const jsonText = prompt("Fügen Sie den empfangenen Weg-Text-Code hier ein:");
+      if (!jsonText) return;
+      try {
+        const imported = JSON.parse(jsonText);
+        saveImportedRoute(imported);
+      } catch (err) {
+        speak("Fehler beim Importieren: Ungültiger Weg-Code.");
+      }
+    }
+
+    function triggerFileImport() {
+      document.getElementById('importFileInput').click();
+    }
+
+    function handleFileImport(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const imported = JSON.parse(e.target.result);
+          saveImportedRoute(imported);
+        } catch (err) {
+          speak("Fehler beim Lesen der Datei.");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function saveImportedRoute(imported) {
+      if (!imported || !imported.name || !imported.points || !Array.isArray(imported.points)) {
+        speak("Fehler: Das Datenformat ist nicht gültig.");
+        return;
+      }
+      imported.id = Date.now();
+      routes.push(imported);
+      localStorage.setItem('navi_routes', JSON.stringify(routes));
+      renderRoutesList();
+      speak(`Weg '${imported.name}' erfolgreich importiert!`);
+    }
+
     function deleteRoute(idx) {
       const deletedName = routes[idx].name;
       routes.splice(idx, 1);
       localStorage.setItem('navi_routes', JSON.stringify(routes));
       renderRoutesList();
       speak(`Weg '${deletedName}' wurde gelöscht.`);
-    }
-
-    // --- TEILEN & IMPORTIEREN ---
-    function exportRoute(idx) {
-      const route = routes[idx];
-      const dataStr = JSON.stringify(route, null, 2);
-      const safeName = route.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      const fileName = `${safeName}_route.json`;
-      const blob = new Blob([dataStr], { type: 'application/json' });
-      const file = new File([blob], fileName, { type: 'application/json' });
-
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({
-          files: [file],
-          title: `Weg: ${route.name}`,
-          text: `Hier ist der aufgezeichnete Weg '${route.name}' für die Navi-App.`
-        }).then(() => speak("Teilen-Menü geöffnet."))
-          .catch(() => speak("Teilen abgebrochen."));
-      } else {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = fileName;
-        a.click();
-        speak(`Weg ${route.name} wurde als Datei heruntergeladen.`);
-      }
-    }
-
-    function importRouteFromFile(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        try {
-          const importedRoute = JSON.parse(e.target.result);
-          if (!importedRoute.name || !Array.isArray(importedRoute.points)) {
-            throw new Error("Ungültiges Format");
-          }
-          importedRoute.id = Date.now();
-          routes.push(importedRoute);
-          localStorage.setItem('navi_routes', JSON.stringify(routes));
-          renderRoutesList();
-          speak(`Weg '${importedRoute.name}' erfolgreich importiert und gespeichert.`);
-        } catch (err) {
-          speak("Fehler beim Importieren: Ungültiges Dateiformat.");
-        }
-      };
-      reader.readAsText(file);
-      event.target.value = '';
     }
 
     function onGeoError(err) {
