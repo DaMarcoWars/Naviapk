@@ -1,89 +1,814 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navigation für Sehbehinderte</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; background-color: #f4f4f4; }
-        .btn { padding: 15px 25px; margin: 5px; font-size: 1.2rem; cursor: pointer; }
-        .input-field { padding: 10px; font-size: 1rem; width: 80%; }
-        /* A11y Focus States */
-        .btn:focus, .input-field:focus {
-            outline: 4px solid #FFD700;
-            outline-offset: 2px;
-        }
-        /* Visually Hidden Label */
-        .sr-only {
-            position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-            overflow: hidden; clip: rect(0, 0, 0, 0); border: 0;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blinden-Fußgänger-Navi</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+    body {
+      background-color: #f4f6f9;
+      color: #212529;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      padding: 15px;
+    }
+    h1 {
+      font-size: 1.8rem;
+      text-align: center;
+      margin-bottom: 15px;
+      color: #0056b3;
+    }
+    .status-box {
+      background-color: #ffffff;
+      border: 3px solid #0056b3;
+      border-radius: 12px;
+      padding: 20px;
+      font-size: 1.5rem;
+      font-weight: bold;
+      text-align: center;
+      margin-bottom: 20px;
+      min-height: 100px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .btn {
+      width: 100%;
+      padding: 22px 15px;
+      font-size: 1.5rem;
+      font-weight: bold;
+      border: none;
+      border-radius: 16px;
+      margin-bottom: 15px;
+      cursor: pointer;
+      color: #FFF;
+      touch-action: manipulation;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    /* A11y Focus States */
+    .btn:focus, .input-field:focus {
+      outline: 4px solid #0056b3;
+      outline-offset: 2px;
+    }
+    .btn-primary { background-color: #0056b3; }
+    .btn-primary:active { background-color: #004085; }
+    .btn-success { background-color: #198754; }
+    .btn-success:active { background-color: #146c43; }
+    .btn-warning { background-color: #ffc107; color: #212529; }
+    .btn-warning:active { background-color: #ffb700; }
+    .btn-danger { background-color: #dc3545; }
+    .btn-danger:active { background-color: #b02a37; }
+    .btn-secondary { background-color: #6c757d; }
+    .btn-secondary:active { background-color: #5c636a; }
+
+    .input-field {
+      width: 100%;
+      padding: 15px;
+      font-size: 1.3rem;
+      border-radius: 10px;
+      border: 2px solid #ced4da;
+      margin-bottom: 15px;
+      background-color: #ffffff;
+      color: #212529;
+    }
+    /* Visually Hidden Label for Screenreaders */
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); border: 0;
+    }
+    .section { display: none; }
+    .section.active { display: block; }
+    .route-item {
+      background: #ffffff;
+      border: 2px solid #ced4da;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 15px;
+      font-size: 1.3rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+  </style>
 </head>
 <body>
 
-<main>
-    <section aria-labelledby="section-title">
-        <h1 id="section-title">Navigations-Assistent</h1>
-        
-        <label for="routeNameInput" class="sr-only">Name des Weges</label>
-        <input type="text" id="routeNameInput" class="input-field" placeholder="Name des Weges" value="Mein Weg">
-        
-        <button id="recordBtn" class="btn">Weg aufzeichnen</button>
-        <button id="navBtn" class="btn">Navigation starten</button>
+  <main>
+    <h1>Fußgänger Navi</h1>
+
+    <div id="status" class="status-box" role="status" aria-live="assertive">
+      Bereit. Bitte wählen Sie eine Aktion.
+    </div>
+
+    <!-- Hauptmenü -->
+    <section id="menuSection" class="section active" aria-labelledby="menu-heading">
+      <h2 id="menu-heading" class="sr-only">Hauptmenü</h2>
+      <button class="btn btn-primary" onclick="showSection('navSection'); prepareNavigation();">1. Navigation starten</button>
+      <button class="btn btn-success" onclick="showSection('recSection'); prepareRecording();">2. Neuen Weg aufzeichnen</button>
+      <button class="btn btn-secondary" onclick="showSection('manageSection'); renderRoutesList();">3. Wege verwalten & Teilen</button>
     </section>
 
-    <section aria-live="assertive" id="status" role="status" style="margin-top: 20px; font-size: 1.5rem; font-weight: bold;">
-        Bereit.
+    <!-- Navigation Section -->
+    <section id="navSection" class="section" aria-labelledby="nav-heading">
+      <h2 id="nav-heading" class="sr-only">Navigation</h2>
+      <button id="startNavBtn" class="btn btn-primary" onclick="toggleNavigation()">Navigation Starten</button>
+      <button class="btn btn-warning" onclick="reverseCurrentRoute()">Weg umkehren (Rückweg)</button>
+      <button class="btn btn-warning" onclick="announceCurrentState()">Wo bin ich? (Status ansagen)</button>
+      <button class="btn btn-secondary" onclick="stopNavigation(); showSection('menuSection');">Zurück zum Hauptmenü</button>
     </section>
-</main>
 
-<script>
+    <!-- Aufzeichnen Section -->
+    <section id="recSection" class="section" aria-labelledby="rec-heading">
+      <h2 id="rec-heading" class="sr-only">Weg aufzeichnen</h2>
+      <label for="routeNameInput" class="sr-only">Name des Weges</label>
+      <input type="text" id="routeNameInput" class="input-field" placeholder="Name des Weges" value="Mein Weg">
+      <button id="recToggleBtn" class="btn btn-success" onclick="toggleRecording()">Aufnahme Starten</button>
+      <button id="addWaypointBtn" class="btn btn-warning" style="display:none;" onclick="manualAddWaypoint()">Haupt-Wegpunkt / Hinweis hinzufügen</button>
+      <button class="btn btn-secondary" onclick="stopRecording(); showSection('menuSection');">Zurück zum Hauptmenü</button>
+    </section>
+
+    <!-- Verwalten & Teilen Section -->
+    <section id="manageSection" class="section" aria-labelledby="manage-heading">
+      <h2 id="manage-heading" style="margin-bottom:15px; font-size: 1.5rem; color:#0056b3;">Gespeicherte Wege</h2>
+      
+      <button class="btn btn-primary" onclick="importFromPrompt()">Weg aus Text-Code importieren</button>
+      
+      <div id="importArea" style="display: none; margin-top: 15px; margin-bottom: 15px; background: #ffffff; padding: 15px; border-radius: 10px; border: 2px solid #ced4da; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+        <label for="importTextInput" style="display:block; margin-bottom:10px; font-weight:bold;">Weg-Code hier einfügen:</label>
+        <textarea id="importTextInput" class="input-field" rows="4" placeholder="Fügen Sie den Text-Code hier ein..."></textarea>
+        <button class="btn btn-success" onclick="processTextImport()">Weg speichern</button>
+        <button class="btn btn-danger" onclick="cancelTextImport()">Abbrechen</button>
+      </div>
+
+      <button class="btn btn-success" onclick="triggerFileImport()">Weg aus Datei importieren</button>
+      <input type="file" id="importFileInput" style="display:none;" accept=".json" onchange="handleFileImport(event)">
+
+      <div id="routesList" style="margin-top: 15px; margin-bottom: 15px;"></div>
+      <button class="btn btn-secondary" onclick="showSection('menuSection');">Zurück zum Hauptmenü</button>
+    </section>
+  </main>
+
+  <script>
+    // --- KONFIGURATION & ZUSTAND ---
+    const REC_DISTANCE_THRESHOLD = 6; 
+    const OFF_ROUTE_THRESHOLD = 15;   
+    const GPS_ACCURACY_LIMIT = 20;    
+
     const AppState = {
-        isScreenReaderActive: false, // In der Praxis über Feature-Detection oder Nutzer-Einstellung
-        wakeLock: null
+      routes: JSON.parse(localStorage.getItem('navi_routes') || '[]'),
+      currentRoute: null,
+      isNavigating: false,
+      isRecording: false,
+      navWatchId: null,
+      recWatchId: null,
+      currentTargetIndex: 0,
+      recPoints: [],
+      lastRecPosition: null,
+      initialSnapDone: false,
+      currentCompassHeading: null,
+      lastOffRouteWarnTime: 0,
+      totalRouteDistance: 0,
+      cumDistances: [],
+      nextPercentThreshold: 20,
+      wakeLock: null,
+      isScreenReaderActive: false 
     };
 
-    // Hilfsfunktion: Sprachausgabe & DOM-Update
-    function speak(text) {
-        // Update DOM für Screenreader (aria-live="assertive")
-        const statusDiv = document.getElementById('status');
-        statusDiv.innerText = text;
-
-        // Eigene Sprachausgabe nur, wenn KEIN Screenreader aktiv ist
-        if (!AppState.isScreenReaderActive) {
-            const msg = new SpeechSynthesisUtterance(text);
-            window.speechSynthesis.speak(msg);
-        }
-    }
-
-    // GPS Genauigkeits-Check
-    function onPositionUpdate(pos) {
-        // Schwellenwert: Wenn Genauigkeit > 20 Meter, ignorieren
-        if (pos.coords.accuracy > 20) {
-            console.warn("GPS Signal zu ungenau:", pos.coords.accuracy);
-            return;
-        }
-        
-        // ... Logik für Position ...
-        console.log("Position verarbeitet:", pos.coords.latitude, pos.coords.longitude);
-    }
-
-    // Wake Lock Re-Activation
+    // --- WAKE LOCK API ---
     async function keepScreenAwake() {
+      if ('wakeLock' in navigator) {
         try {
-            AppState.wakeLock = await navigator.wakeLock.request('screen');
-        } catch (err) {
-            console.error("Wake Lock konnte nicht aktiviert werden");
+          if (AppState.wakeLock !== null) return;
+          AppState.wakeLock = await navigator.wakeLock.request('screen');
+        } catch (err) { 
+          console.error("Wake Lock Fehler:", err); 
         }
+      }
+    }
+
+    function releaseWakeLock() {
+      if (AppState.wakeLock !== null) {
+        AppState.wakeLock.release().then(() => {
+          AppState.wakeLock = null;
+        });
+      }
     }
 
     document.addEventListener('visibilitychange', async () => {
-        if (document.visibilityState === 'visible' && AppState.wakeLock !== null) {
-            await keepScreenAwake();
-        }
+      if (document.visibilityState === 'visible' && AppState.wakeLock !== null) {
+        await keepScreenAwake();
+      }
     });
 
-</script>
+    // --- KOMPASS SENSOR ---
+    let smoothedSin = 0;
+    let smoothedCos = 0;
+
+    function initCompass() {
+      if ('ondeviceorientationabsolute' in window) {
+        window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+      } else if ('ondeviceorientation' in window) {
+        window.addEventListener('deviceorientation', handleOrientation, true);
+      }
+    }
+
+    function handleOrientation(event) {
+      let rawHeading = null;
+      if (event.alpha !== null && event.alpha !== undefined) {
+        rawHeading = (360 - event.alpha) % 360;
+      }
+
+      if (rawHeading !== null) {
+        let rad = rawHeading * (Math.PI / 180);
+        let alphaFilter = 0.2;
+
+        if (smoothedSin === 0 && smoothedCos === 0) {
+          smoothedSin = Math.sin(rad);
+          smoothedCos = Math.cos(rad);
+        } else {
+          smoothedSin = (alphaFilter * Math.sin(rad)) + ((1 - alphaFilter) * smoothedSin);
+          smoothedCos = (alphaFilter * Math.cos(rad)) + ((1 - alphaFilter) * smoothedCos);
+        }
+
+        let smoothedRad = Math.atan2(smoothedSin, smoothedCos);
+        AppState.currentCompassHeading = (smoothedRad * (180 / Math.PI) + 360) % 360;
+      }
+    }
+
+    // --- SPRACHREPRODUKTION & SCREENREADER ---
+    function initAudioEngine() {
+      if ('speechSynthesis' in window) {
+        let utterance = new SpeechSynthesisUtterance('');
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    function speak(text) {
+      const statusElement = document.getElementById('status');
+      if (statusElement) {
+        statusElement.innerText = text;
+      }
+
+      if (!AppState.isScreenReaderActive) {
+        try {
+          if ('speechSynthesis' in window && window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+            const msg = new SpeechSynthesisUtterance(text);
+            msg.lang = 'de-DE';
+            msg.rate = 1.0;
+            window.speechSynthesis.speak(msg);
+          }
+        } catch (e) {
+          console.log("Sprachausgabe-Fehler:", e);
+        }
+      }
+    }
+
+    function vibrate(pattern) {
+      if (navigator.vibrate) navigator.vibrate(pattern);
+    }
+
+    function showSection(sectionId) {
+      document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
+      document.getElementById(sectionId).classList.add('active');
+    }
+
+    function getDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function getBearing(lat1, lon1, lat2, lon2) {
+      const φ1 = lat1 * Math.PI / 180;
+      const φ2 = lat2 * Math.PI / 180;
+      const Δλ = (lon2 - lon1) * Math.PI / 180;
+      const y = Math.sin(Δλ) * Math.cos(φ2);
+      const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+      const θ = Math.atan2(y, x);
+      return (θ * 180 / Math.PI + 360) % 360;
+    }
+
+    function getDirectionText(lat1, lon1, lat2, lon2, gpsHeading) {
+      const bearing = getBearing(lat1, lon1, lat2, lon2);
+      let heading = (gpsHeading !== null && gpsHeading !== undefined && !isNaN(gpsHeading)) 
+                    ? gpsHeading 
+                    : AppState.currentCompassHeading;
+
+      if (heading !== null && heading !== undefined && !isNaN(heading)) {
+        let relAngle = (bearing - heading + 360) % 360;
+        let clock = Math.round(relAngle / 30);
+        if (clock === 0 || clock === 12) clock = 12;
+        return `auf ${clock} Uhr`;
+      } else {
+        return `geradeaus`;
+      }
+    }
+
+    function isKeyPoint(point, idx, totalLength) {
+      if (point.isKey !== undefined) return point.isKey;
+      if (idx === 0 || idx === totalLength - 1) return true;
+      if (point.text && !point.text.startsWith("Wegpunkt ")) return true;
+      return false;
+    }
+
+    function getNextKeyIndex(startIndex, points) {
+      for (let i = startIndex; i < points.length; i++) {
+        if (isKeyPoint(points[i], i, points.length)) return i;
+      }
+      return points.length - 1;
+    }
+
+    function calculateRouteDistances() {
+      AppState.cumDistances = [0];
+      AppState.totalRouteDistance = 0;
+      if (!AppState.currentRoute || !AppState.currentRoute.points || AppState.currentRoute.points.length === 0) return;
+      
+      const points = AppState.currentRoute.points;
+      for (let i = 1; i < points.length; i++) {
+        const d = getDistance(points[i-1].lat, points[i-1].lon, points[i].lat, points[i].lon);
+        AppState.totalRouteDistance += d;
+        AppState.cumDistances.push(AppState.totalRouteDistance);
+      }
+      AppState.nextPercentThreshold = 20;
+    }
+
+    // --- NAVIGATION ---
+    function prepareNavigation() {
+      initAudioEngine();
+      initCompass();
+      AppState.routes = JSON.parse(localStorage.getItem('navi_routes') || '[]');
+      if (AppState.routes.length === 0) {
+        speak("Keine gespeicherten Wege vorhanden. Bitte zeichnen Sie zuerst einen Weg auf.");
+        showSection('menuSection');
+        return;
+      }
+      AppState.currentRoute = AppState.routes[AppState.routes.length - 1];
+      AppState.currentTargetIndex = 0;
+      AppState.initialSnapDone = false;
+      calculateRouteDistances();
+      speak(`Weg gewählt: ${AppState.currentRoute.name}. Bereit zum Starten.`);
+    }
+
+    function toggleNavigation() {
+      if (AppState.isNavigating) stopNavigation();
+      else startNavigation();
+    }
+
+    function startNavigation() {
+      if (!AppState.currentRoute || AppState.currentRoute.points.length === 0) {
+        speak("Fehler: Keine Wegpunkte vorhanden.");
+        return;
+      }
+
+      initAudioEngine();
+      keepScreenAwake();
+
+      calculateRouteDistances();
+      AppState.isNavigating = true;
+      document.getElementById('startNavBtn').innerText = "Navigation Stoppen";
+      document.getElementById('startNavBtn').className = "btn btn-danger";
+      speak("Suche GPS-Signal. Bitte warten.");
+
+      AppState.navWatchId = navigator.geolocation.watchPosition(
+        onNavPosition,
+        onGeoError,
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+      );
+    }
+
+    function reverseCurrentRoute() {
+      if (!AppState.currentRoute) {
+        speak("Kein Weg ausgewählt.");
+        return;
+      }
+      AppState.currentRoute.points.reverse();
+      
+      let firstPoint = AppState.currentRoute.points[0];
+      let lastPoint = AppState.currentRoute.points[AppState.currentRoute.points.length - 1];
+      if (firstPoint.text === "Ziel erreicht") firstPoint.text = "Neuer Startpunkt";
+      if (lastPoint.text === "Startpunkt") lastPoint.text = "Ziel erreicht";
+
+      AppState.currentTargetIndex = 0;
+      AppState.initialSnapDone = false;
+      calculateRouteDistances();
+      speak("Weg wurde umgekehrt. Start und Ziel sind jetzt vertauscht. Bereit für den Rückweg.");
+    }
+
+    function onNavPosition(pos) {
+      if (pos.coords.accuracy > GPS_ACCURACY_LIMIT) return;
+
+      const uLat = pos.coords.latitude;
+      const uLon = pos.coords.longitude;
+      const heading = pos.coords.heading;
+      const points = AppState.currentRoute.points;
+
+      let minTrackDist = Infinity;
+      let closestIdx = AppState.currentTargetIndex;
+
+      for (let i = 0; i < points.length; i++) {
+        const d = getDistance(uLat, uLon, points[i].lat, points[i].lon);
+        if (d < minTrackDist) {
+          minTrackDist = d;
+          closestIdx = i;
+        }
+      }
+
+      if (!AppState.initialSnapDone) {
+        AppState.currentTargetIndex = closestIdx;
+        AppState.initialSnapDone = true;
+        
+        const keyIdx = getNextKeyIndex(AppState.currentTargetIndex, points);
+        const keyTarget = points[keyIdx];
+        const distToKey = Math.round(getDistance(uLat, uLon, keyTarget.lat, keyTarget.lon));
+        const dirText = getDirectionText(uLat, uLon, keyTarget.lat, keyTarget.lon, heading);
+        const nameText = keyTarget.text || `Haupt-Wegpunkt ${keyIdx + 1}`;
+
+        speak(`Navigation gestartet. Nächster Haupt-Wegpunkt: ${nameText}. Noch ${distToKey} Meter ${dirText}.`);
+        vibrate([100, 50, 100]);
+        return;
+      }
+
+      if (closestIdx >= AppState.currentTargetIndex) {
+        AppState.currentTargetIndex = closestIdx;
+      }
+
+      if (minTrackDist > OFF_ROUTE_THRESHOLD) {
+        const now = Date.now();
+        if (now - AppState.lastOffRouteWarnTime > 12000) {
+          AppState.lastOffRouteWarnTime = now;
+          const keyIdx = getNextKeyIndex(AppState.currentTargetIndex, points);
+          const keyTarget = points[keyIdx];
+          const dirText = getDirectionText(uLat, uLon, keyTarget.lat, keyTarget.lon, heading);
+          
+          speak(`Achtung: Du bist vom Weg abgekommen! Der nächste Wegpunkt liegt ca. ${Math.round(minTrackDist)} Meter entfernt ${dirText}.`);
+          vibrate([300, 100, 300, 100, 300]);
+        }
+        return;
+      }
+
+      if (AppState.totalRouteDistance > 0) {
+        const currentProgress = AppState.cumDistances[AppState.currentTargetIndex];
+        const currentPercent = (currentProgress / AppState.totalRouteDistance) * 100;
+
+        if (currentPercent >= AppState.nextPercentThreshold && AppState.nextPercentThreshold <= 80) {
+          const keyIdx = getNextKeyIndex(AppState.currentTargetIndex, points);
+          const keyTarget = points[keyIdx];
+          const distToKey = Math.round(getDistance(uLat, uLon, keyTarget.lat, keyTarget.lon));
+          const dirText = getDirectionText(uLat, uLon, keyTarget.lat, keyTarget.lon, heading);
+          const nameText = keyTarget.text || (keyIdx === points.length - 1 ? "Ziel" : `Haupt-Wegpunkt ${keyIdx + 1}`);
+
+          speak(`Zwischenstand: ${AppState.nextPercentThreshold} Prozent der Strecke geschafft. Noch ${distToKey} Meter ${dirText} bis ${nameText}.`);
+          vibrate([150, 100, 150]);
+
+          while (AppState.nextPercentThreshold <= currentPercent) {
+            AppState.nextPercentThreshold += 20;
+          }
+        }
+      }
+
+      const keyIdx = getNextKeyIndex(AppState.currentTargetIndex, points);
+      const keyTarget = points[keyIdx];
+      const distToKey = getDistance(uLat, uLon, keyTarget.lat, keyTarget.lon);
+
+      if (distToKey < 7) {
+        vibrate([300, 100, 300]);
+        let msg = `Erreicht: ${keyTarget.text || ('Haupt-Wegpunkt ' + (keyIdx + 1))}. `;
+
+        if (keyIdx < points.length - 1) {
+          AppState.currentTargetIndex = keyIdx + 1;
+          const nextKeyIdx = getNextKeyIndex(AppState.currentTargetIndex, points);
+          const nextKeyTarget = points[nextKeyIdx];
+          const nextDist = Math.round(getDistance(uLat, uLon, nextKeyTarget.lat, nextKeyTarget.lon));
+          const dirText = getDirectionText(uLat, uLon, nextKeyTarget.lat, nextKeyTarget.lon, heading);
+          const nextName = nextKeyTarget.text || `Haupt-Wegpunkt ${nextKeyIdx + 1}`;
+
+          msg += `Nächstes Ziel: ${nextName} in ca. ${nextDist} Metern ${dirText}.`;
+          speak(msg);
+        } else {
+          msg += " Ziel erreicht! Navigation beendet.";
+          speak(msg);
+          stopNavigation();
+        }
+      }
+    }
+
+    function announceCurrentState() {
+      if (!AppState.isNavigating || !AppState.currentRoute) {
+        speak("Navigation ist nicht aktiv.");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(pos => {
+        if (pos.coords.accuracy > GPS_ACCURACY_LIMIT) {
+          speak("GPS-Signal zu ungenau für Statusabfrage.");
+          return;
+        }
+        const uLat = pos.coords.latitude;
+        const uLon = pos.coords.longitude;
+        const heading = pos.coords.heading;
+        const points = AppState.currentRoute.points;
+
+        let minTrackDist = Infinity;
+        for (let i = 0; i < points.length; i++) {
+          const d = getDistance(uLat, uLon, points[i].lat, points[i].lon);
+          if (d < minTrackDist) minTrackDist = d;
+        }
+
+        const keyIdx = getNextKeyIndex(AppState.currentTargetIndex, points);
+        const keyTarget = points[keyIdx];
+        const distToKey = Math.round(getDistance(uLat, uLon, keyTarget.lat, keyTarget.lon));
+        const dirText = getDirectionText(uLat, uLon, keyTarget.lat, keyTarget.lon, heading);
+        const nameText = keyTarget.text || `Haupt-Wegpunkt ${keyIdx + 1}`;
+
+        let currentPercent = 0;
+        if (AppState.totalRouteDistance > 0) {
+          currentPercent = Math.round((AppState.cumDistances[AppState.currentTargetIndex] / AppState.totalRouteDistance) * 100);
+        }
+
+        if (minTrackDist > OFF_ROUTE_THRESHOLD) {
+          speak(`Achtung: Du bist ca. ${Math.round(minTrackDist)} Meter vom Weg abgekommen! Nächster Wegpunkt ${dirText}.`);
+        } else {
+          speak(`Auf dem Weg (${currentPercent}% geschafft). Nächstes Ziel: ${nameText}. Noch ca. ${distToKey} Meter ${dirText}.`);
+        }
+      }, () => speak("GPS-Signal aktuell nicht verfügbar."));
+    }
+
+    function stopNavigation() {
+      if (AppState.navWatchId !== null) {
+        navigator.geolocation.clearWatch(AppState.navWatchId);
+        AppState.navWatchId = null;
+      }
+      AppState.isNavigating = false;
+      AppState.initialSnapDone = false;
+      releaseWakeLock();
+      document.getElementById('startNavBtn').innerText = "Navigation Starten";
+      document.getElementById('startNavBtn').className = "btn btn-primary";
+      speak("Navigation gestoppt.");
+    }
+
+    // --- AUFZEICHNUNG ---
+    function prepareRecording() {
+      initAudioEngine();
+      AppState.recPoints = [];
+      document.getElementById('recToggleBtn').innerText = "Aufnahme Starten";
+      document.getElementById('recToggleBtn').className = "btn btn-success";
+      document.getElementById('addWaypointBtn').style.display = "none";
+      speak("Geben Sie einen Namen ein und drücken Sie 'Aufnahme Starten'.");
+    }
+
+    function toggleRecording() {
+      if (AppState.isRecording) finishRecording();
+      else startRecording();
+    }
+
+    function startRecording() {
+      initAudioEngine();
+      keepScreenAwake();
+      
+      AppState.isRecording = true;
+      AppState.recPoints = [];
+      AppState.lastRecPosition = null;
+
+      document.getElementById('recToggleBtn').innerText = "Aufnahme Beenden & Speichern";
+      document.getElementById('recToggleBtn').className = "btn btn-danger";
+      document.getElementById('addWaypointBtn').style.display = "block";
+
+      speak("Aufnahme gestartet. Gehen Sie jetzt Ihren Weg.");
+
+      AppState.recWatchId = navigator.geolocation.watchPosition(
+        onRecPosition,
+        onGeoError,
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+      );
+    }
+
+    function onRecPosition(pos) {
+      if (pos.coords.accuracy > GPS_ACCURACY_LIMIT) return;
+
+      const uLat = pos.coords.latitude;
+      const uLon = pos.coords.longitude;
+
+      if (!AppState.lastRecPosition) {
+        addRecPoint(uLat, uLon, "Startpunkt", true);
+        AppState.lastRecPosition = { lat: uLat, lon: uLon };
+        speak("Startpunkt gespeichert.");
+        vibrate(200);
+      } else {
+        const dist = getDistance(AppState.lastRecPosition.lat, AppState.lastRecPosition.lon, uLat, uLon);
+        if (dist >= REC_DISTANCE_THRESHOLD) {
+          addRecPoint(uLat, uLon, "", false);
+          AppState.lastRecPosition = { lat: uLat, lon: uLon };
+          vibrate(80);
+        }
+      }
+    }
+
+    function manualAddWaypoint() {
+      if (!AppState.isRecording) return;
+      navigator.geolocation.getCurrentPosition(pos => {
+        if (pos.coords.accuracy > GPS_ACCURACY_LIMIT) {
+          speak("GPS-Signal zu ungenau, um Wegpunkt zu speichern.");
+          return;
+        }
+        const uLat = pos.coords.latitude;
+        const uLon = pos.coords.longitude;
+        const note = prompt("Hinweis für diesen Haupt-Wegpunkt eingeben:", "Besonderer Hinweis");
+        addRecPoint(uLat, uLon, note || "Wichtiger Hinweis", true);
+        AppState.lastRecPosition = { lat: uLat, lon: uLon };
+        vibrate([100, 100, 100]);
+        speak(`Haupt-Wegpunkt mit Hinweis gespeichert.`);
+      }, () => speak("GPS Fehler beim Speichern."));
+    }
+
+    function addRecPoint(lat, lon, text, isKey) {
+      AppState.recPoints.push({ lat: lat, lon: lon, text: text, isKey: !!isKey });
+    }
+
+    function finishRecording() {
+      if (AppState.recWatchId !== null) {
+        navigator.geolocation.clearWatch(AppState.recWatchId);
+        AppState.recWatchId = null;
+      }
+      AppState.isRecording = false;
+      releaseWakeLock();
+
+      if (AppState.recPoints.length === 0) {
+        speak("Keine Punkte aufgezeichnet.");
+      } else {
+        AppState.recPoints[AppState.recPoints.length - 1].isKey = true;
+        if (!AppState.recPoints[AppState.recPoints.length - 1].text) {
+          AppState.recPoints[AppState.recPoints.length - 1].text = "Ziel erreicht";
+        }
+
+        const routeName = document.getElementById('routeNameInput').value.trim() || `Weg ${AppState.routes.length + 1}`;
+        AppState.routes.push({
+          id: Date.now(),
+          name: routeName,
+          points: AppState.recPoints
+        });
+        localStorage.setItem('navi_routes', JSON.stringify(AppState.routes));
+        speak(`Weg '${routeName}' erfolgreich gespeichert!`);
+      }
+
+      showSection('menuSection');
+    }
+
+    function stopRecording() {
+      if (AppState.recWatchId !== null) {
+        navigator.geolocation.clearWatch(AppState.recWatchId);
+        AppState.recWatchId = null;
+      }
+      AppState.isRecording = false;
+      releaseWakeLock();
+      speak("Aufnahme abgebrochen.");
+    }
+
+    // --- VERWALTUNG & TEILEN ---
+    function renderRoutesList() {
+      AppState.routes = JSON.parse(localStorage.getItem('navi_routes') || '[]');
+      const container = document.getElementById('routesList');
+      if (AppState.routes.length === 0) {
+        container.innerHTML = "<p>Keine Wege gespeichert.</p>";
+        speak("Keine gespeicherten Wege vorhanden.");
+        return;
+      }
+
+      let html = "";
+      AppState.routes.forEach((r, idx) => {
+        html += `
+          <div class="route-item">
+            <strong>${r.name}</strong> (${r.points.length} Punkte)
+            <br><br>
+            <button class="btn btn-primary" onclick="selectRoute(${idx})">Navigieren</button>
+            <button class="btn btn-warning" onclick="shareRoute(${idx})">Weg Teilen / Senden</button>
+            <button class="btn btn-danger" onclick="deleteRoute(${idx})">Löschen</button>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+      speak(`${AppState.routes.length} gespeicherte Wege geladen.`);
+    }
+
+    function selectRoute(idx) {
+      AppState.currentRoute = AppState.routes[idx];
+      AppState.currentTargetIndex = 0;
+      AppState.initialSnapDone = false;
+      calculateRouteDistances();
+      speak(`Weg '${AppState.currentRoute.name}' ausgewählt.`);
+      showSection('navSection');
+    }
+
+    function shareRoute(idx) {
+      const route = AppState.routes[idx];
+      const routeJson = JSON.stringify(route);
+
+      if (navigator.share) {
+        navigator.share({
+          title: `Weg: ${route.name}`,
+          text: routeJson
+        }).then(() => speak("Weg-Daten gesendet."))
+          .catch(() => copyToClipboard(routeJson));
+      } else {
+        copyToClipboard(routeJson);
+      }
+    }
+
+    function copyToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          speak("Weg wurde als Text-Code in die Zwischenablage kopiert.");
+        }).catch(() => {
+          prompt("Kopieren Sie diesen Text-Code zum Teilen:", text);
+        });
+      } else {
+        prompt("Kopieren Sie diesen Text-Code zum Teilen:", text);
+      }
+    }
+
+    // --- TEXT IMPORT ---
+    function importFromPrompt() {
+      document.getElementById('importArea').style.display = 'block';
+      document.getElementById('importTextInput').focus();
+      speak("Bitte fügen Sie den Text-Code in das Eingabefeld ein und drücken Sie auf Weg speichern.");
+    }
+
+    function cancelTextImport() {
+      document.getElementById('importArea').style.display = 'none';
+      document.getElementById('importTextInput').value = '';
+      speak("Import abgebrochen.");
+    }
+
+    function processTextImport() {
+      const jsonText = document.getElementById('importTextInput').value.trim();
+      if (!jsonText) {
+        speak("Das Textfeld ist leer.");
+        return;
+      }
+
+      try {
+        const imported = JSON.parse(jsonText);
+        saveImportedRoute(imported);
+        cancelTextImport(); 
+      } catch (err) {
+        speak("Fehler beim Importieren: Der eingefügte Code ist unvollständig oder fehlerhaft.");
+      }
+    }
+
+    // --- DATEI IMPORT ---
+    function triggerFileImport() {
+      document.getElementById('importFileInput').click();
+    }
+
+    function handleFileImport(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const imported = JSON.parse(e.target.result);
+          saveImportedRoute(imported);
+        } catch (err) {
+          speak("Fehler beim Lesen der Datei.");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function saveImportedRoute(imported) {
+      if (!imported || !imported.name || !imported.points || !Array.isArray(imported.points)) {
+        speak("Fehler: Das Datenformat ist nicht gültig.");
+        return;
+      }
+      imported.id = Date.now();
+      AppState.routes.push(imported);
+      localStorage.setItem('navi_routes', JSON.stringify(AppState.routes));
+      renderRoutesList();
+      speak(`Weg '${imported.name}' erfolgreich importiert!`);
+    }
+
+    function deleteRoute(idx) {
+      const deletedName = AppState.routes[idx].name;
+      AppState.routes.splice(idx, 1);
+      localStorage.setItem('navi_routes', JSON.stringify(AppState.routes));
+      renderRoutesList();
+      speak(`Weg '${deletedName}' wurde gelöscht.`);
+    }
+
+    function onGeoError(err) {
+      if (err.code === 1) speak("GPS-Zugriff wurde verweigert. Bitte aktivieren Sie den Standort.");
+      else if (err.code === 2) speak("GPS-Signal konnte nicht gefunden werden.");
+      else speak("Unbekannter GPS Fehler. Bitte aktivieren Sie den Standort auf Ihrem Smartphone.");
+    }
+  </script>
 </body>
 </html>
