@@ -139,15 +139,6 @@
     <section id="manageSection" class="section" aria-labelledby="manage-heading">
       <h2 id="manage-heading" style="margin-bottom:15px; font-size: 1.5rem; color:#0056b3;">Gespeicherte Wege</h2>
       
-      <button class="btn btn-primary" onclick="importFromPrompt()">Weg aus Text-Code importieren</button>
-      
-      <div id="importArea" style="display: none; margin-top: 15px; margin-bottom: 15px; background: #ffffff; padding: 15px; border-radius: 10px; border: 2px solid #ced4da; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-        <label for="importTextInput" style="display:block; margin-bottom:10px; font-weight:bold;">Weg-Code hier einfügen:</label>
-        <textarea id="importTextInput" class="input-field" rows="4" placeholder="Fügen Sie den Text-Code hier ein..."></textarea>
-        <button class="btn btn-success" onclick="processTextImport()">Weg speichern</button>
-        <button class="btn btn-danger" onclick="cancelTextImport()">Abbrechen</button>
-      </div>
-
       <button class="btn btn-success" onclick="triggerFileImport()">Weg aus Datei importieren</button>
       <input type="file" id="importFileInput" style="display:none;" accept=".json" onchange="handleFileImport(event)">
 
@@ -675,7 +666,7 @@
       speak("Aufnahme abgebrochen.");
     }
 
-    // --- VERWALTUNG & TEILEN ---
+    // --- VERWALTUNG & DATEI-TEILEN ---
     function renderRoutesList() {
       AppState.routes = JSON.parse(localStorage.getItem('navi_routes') || '[]');
       const container = document.getElementById('routesList');
@@ -692,8 +683,8 @@
             <strong>${r.name}</strong> (${r.points.length} Punkte)
             <br><br>
             <button class="btn btn-primary" onclick="selectRoute(${idx})">Navigieren</button>
-            <button class="btn btn-warning" onclick="shareRoute(${idx})">Weg Teilen (System)</button>
-            <button class="btn btn-whatsapp" onclick="shareViaWhatsApp(${idx})">Per WhatsApp senden</button>
+            <button class="btn btn-whatsapp" onclick="shareRouteFile(${idx})">Weg als Datei senden (WhatsApp / Apps)</button>
+            <button class="btn btn-warning" onclick="downloadRouteFile(${idx})">Weg als Datei herunterladen</button>
             <button class="btn btn-danger" onclick="deleteRoute(${idx})">Löschen</button>
           </div>
         `;
@@ -711,70 +702,50 @@
       showSection('navSection');
     }
 
-    function shareRoute(idx) {
-      const route = AppState.routes[idx];
-      const routeJson = JSON.stringify(route);
+    function getRouteFile(route) {
+      const routeJson = JSON.stringify(route, null, 2);
+      const blob = new Blob([routeJson], { type: 'application/json' });
+      const safeName = route.name.replace(/[^a-z0-9äöüß_-]/gi, '_').toLowerCase();
+      return new File([blob], `${safeName}.json`, { type: 'application/json' });
+    }
 
-      if (navigator.share) {
+    function shareRouteFile(idx) {
+      const route = AppState.routes[idx];
+      const file = getRouteFile(route);
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
         navigator.share({
           title: `Weg: ${route.name}`,
-          text: routeJson
-        }).then(() => speak("Weg-Daten gesendet."))
-          .catch(() => copyToClipboard(routeJson));
-      } else {
-        copyToClipboard(routeJson);
-      }
-    }
-
-    function shareViaWhatsApp(idx) {
-      const route = AppState.routes[idx];
-      const routeJson = JSON.stringify(route);
-      const shareText = `Mein Fußgänger-Navi Weg: ${route.name}\n\nFüge diesen Code zum Importieren ein:\n${routeJson}`;
-      const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`;
-      
-      window.open(whatsappUrl, '_blank');
-      speak("WhatsApp geöffnet zum Senden des Weges.");
-    }
-
-    function copyToClipboard(text) {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(() => {
-          speak("Weg wurde als Text-Code in die Zwischenablage kopiert.");
-        }).catch(() => {
-          prompt("Kopieren Sie diesen Text-Code zum Teilen:", text);
+          text: `Hier ist die Weg-Datei für das Fußgänger-Navi: ${route.name}`,
+          files: [file]
+        }).then(() => {
+          speak("Weg als Datei geteilt.");
+        }).catch((err) => {
+          if (err.name !== 'AbortError') {
+            downloadRouteFile(idx);
+          }
         });
       } else {
-        prompt("Kopieren Sie diesen Text-Code zum Teilen:", text);
+        // Fallback wenn direkte Dateifreigabe vom Browser nicht unterstützt wird
+        speak("Direktes Teilen als Datei wird hier nicht unterstützt. Datei wird stattdessen heruntergeladen.");
+        downloadRouteFile(idx);
       }
     }
 
-    // --- TEXT IMPORT ---
-    function importFromPrompt() {
-      document.getElementById('importArea').style.display = 'block';
-      document.getElementById('importTextInput').focus();
-      speak("Bitte fügen Sie den Text-Code in das Eingabefeld ein und drücken Sie auf Weg speichern.");
-    }
-
-    function cancelTextImport() {
-      document.getElementById('importArea').style.display = 'none';
-      document.getElementById('importTextInput').value = '';
-      speak("Import abgebrochen.");
-    }
-
-    function processTextImport() {
-      const jsonText = document.getElementById('importTextInput').value.trim();
-      if (!jsonText) {
-        speak("Das Textfeld ist leer.");
-        return;
-      }
-
-      try {
-        const imported = JSON.parse(jsonText);
-        saveImportedRoute(imported);
-        cancelTextImport(); 
-      } catch (err) {
-        speak("Fehler beim Importieren: Der eingefügte Code ist unvollständig oder fehlerhaft.");
-      }
+    function downloadRouteFile(idx) {
+      const route = AppState.routes[idx];
+      const file = getRouteFile(route);
+      const url = URL.createObjectURL(file);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      speak(`Weg '${route.name}' wurde als Datei heruntergeladen.`);
     }
 
     // --- DATEI IMPORT ---
@@ -791,7 +762,7 @@
           const imported = JSON.parse(e.target.result);
           saveImportedRoute(imported);
         } catch (err) {
-          speak("Fehler beim Lesen der Datei.");
+          speak("Fehler beim Lesen der Datei. Die Datei ist ungültig.");
         }
       };
       reader.readAsText(file);
